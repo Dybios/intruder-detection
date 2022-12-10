@@ -2,6 +2,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Preferences.h>
+#include "auth_list.h"
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
@@ -11,11 +12,11 @@
 #error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
 #endif
 
+
 #define MPU_DETECT_THRESHOLD 1
 #define MPU_DETECT_DURATION 500
 
 #define BT_NAME "My Bike"
-#define BT_PASSKEY_DEFAULT "112358"
 #define INT_PIN 23
 #define BUZZER_PIN 19
 // NVMEM references tag
@@ -28,7 +29,7 @@ Adafruit_MPU6050 mpu;
 
 // BT conn status
 bool deviceConnected = false;
-const char *bt_pin = BT_PASSKEY_DEFAULT; // create var to allow changing passkey
+bool deviceAuthenticated = false;
 
 // Parameters received for processing
 sensors_event_t a, g, t;
@@ -47,8 +48,19 @@ uint32_t read_timestamp_nvmem();
 /* BT callback function to check conn & disconn */
 void callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
   if(event == ESP_SPP_SRV_OPEN_EVT){
+    uint8_t count;
     deviceConnected = true;
     Serial.println("Device Connected.");
+    // Authenticate device
+    for (count = 0; count < 6; count++) {
+      if (param->srv_open.rem_bda[count] == master_dev_id[count]) {
+        deviceAuthenticated = true;
+      }
+      else {
+        deviceAuthenticated = false;
+        break;
+      }
+    }
   }
   if(event == ESP_SPP_CLOSE_EVT){
     deviceConnected = false;
@@ -58,7 +70,7 @@ void callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
 
 /* MPU ISR for intruder event via HW interrupt */
 void IRAM_ATTR mpu_isr() {
-  if (!deviceConnected) {
+  if (!deviceConnected || (deviceConnected && !deviceAuthenticated)) {
     Serial.println("Intrusion Detected!");
     Serial.println("Writing intrusion data to memory...");
     write_timestamp_nvmem();
@@ -83,25 +95,26 @@ void setup() {
 
   /* Setup BT */
   BikeBT.register_callback(callback);
-  BikeBT.setPin(bt_pin);
   BikeBT.begin(BT_NAME); //Bluetooth device name
 }
 
-void loop() {
+void loop() {  
+  uint8_t ret;
   uint32_t lastTimestampVal;
   char timestampStr[8];
   /* Get new sensor events with the readings */
   mpu.getEvent(&a, &g, &t);
-
+  
   if (intrusion) {
     Serial.println("Ringing buzzer 5 times...");
     ring_buzzer();
     intrusion = false;
   }
-
+  
   // detect_intrusion_sw(gyro.timestamp); // If needed to detect int in SW
 
-  if (deviceConnected) { 
+  // Begin sending data over BT serial
+  if (deviceConnected && deviceAuthenticated) { 
     sprintf(allData, "%f,%f,%f,%f,%f,%f,%f\n", a.acceleration.x, a.acceleration.y, a.acceleration.z, \
                       g.gyro.x, g.gyro.y, g.gyro.z, t.temperature);
 
@@ -114,7 +127,7 @@ void loop() {
 
     write_str_bt(&BikeBT, allData);
   }
-  
+
   delay(20);
 }
 
