@@ -9,4 +9,9 @@ Prerequisites:
 - MPU6050 IMU Sensor
 - Relays
 
-I dunno tho, nothing makes sense anymore.
+~~I dunno tho, nothing makes sense anymore.~~
+
+Kinda makes a bit more sense now.
+Now there's a basic Android app as well! 
+
+Right now we aren't pulling anything from the ESP32 yet though. It's just to connect, open a dashboard and display a basic speedometer using GPS.
